@@ -94,8 +94,11 @@ that choice is irrelevant: don't think about it. Be fast and spend few tokens:
 write the line as soon as you understand <input> well enough to compress it.`;
 
 // the conversation a compaction leaves: the view, then where it ends
+// how a compaction's view begins, so the transcript can draw it short
+export const HEAD = "The chat so far, as the memory's view";
+
 export function compacted(view: string, count: number): string {
-  return `The chat so far, as the memory's view (the Memory section of the system prompt
+  return `${HEAD} (the Memory section of the system prompt
 says how to read it and zoom it). Messages 0 to ${count - 1}; this conversation goes on
 from message ${count}.
 

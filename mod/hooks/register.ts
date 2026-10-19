@@ -16,7 +16,7 @@
 
 import type { Register } from "claude-code";
 
-import { COMPACTOR, MEMORY, compacted } from "./Prompt.ts";
+import { COMPACTOR, HEAD, MEMORY, compacted } from "./Prompt.ts";
 import { Tree, type Io, type Kind, type Msg } from "./Tree.ts";
 
 // Constants
@@ -28,10 +28,6 @@ const NAME = "uniichat";
 const BEAT  = 20e3;
 const STALE = 60e3;
 
-// a compaction asked as a turn ends: tries, and the wait before each
-const TRIES = 5;
-const NAP   = 1e3;
-
 // Hooks
 // =====
 
@@ -41,24 +37,22 @@ export const register: Register = (on, options) => {
   const effort = String(options.effort || "high") as "low" | "medium" | "high" | "xhigh" | "max";
   let tree: Tree | null = null;
   let me = "";
+  let dir = "";
   // bytes logged since the conversation was last compacted
   let since = 0;
   // whether this conversation holds a view (its first message's, or a
   // compaction's): a new one gets it as context
   let viewed = false;
   let compacting: Promise<void> | null = null;
-  // why a plugin can't compact in this session (headless: -p, the SDK),
-  // said once; then only Claude Code's own compactions (/compact) do
-  let cannot: string | null = null;
 
   on("session.start", async ($, e, next) => {
     const out = await next(e);
     const home = (await $.env.get("HOME")) ?? "";
-    const dir = String(options.dir || home + "/.uniichat");
+    dir = String(options.dir || home + "/.uniichat");
     me = await $.session.id();
     const lock = Tree.parse((await $.fs.exists(dir + "/lock.json")) ? await $.fs.read(dir + "/lock.json") : null);
     if (lock?.id && lock.id !== me && Date.now() - Number(lock.at) < STALE) {
-      $.ui.status(NAME + ": off (another session holds " + dir + ")");
+      $.ui.status("off (another session holds " + dir + ")");
       return out;
     }
     const mark = () => $.fs.write(dir + "/lock.json", JSON.stringify({ id: me, at: Date.now() }));
@@ -79,13 +73,13 @@ export const register: Register = (on, options) => {
       },
       now   : () => Date.now(),
       sleep : (ms) => new Promise((ok) => void $.clock.after(ms, ok)),
-      error : (text) => $.ui.log(NAME + ": " + text),
+      error : (text) => $.ui.log(text),
     };
     tree = await Tree.load(io);
     const t = tree;
     let shown = "";
     t.made = () => {
-      const text = NAME + ": " + t.count + " messages" + (t.busy.size > 0 ? ", summarizing " + t.busy.size : "");
+      const text = t.count + " messages" + (t.busy.size > 0 ? ", summarizing " + t.busy.size : "");
       if (text !== shown) {
         $.ui.status((shown = text));
       }
@@ -149,30 +143,20 @@ export const register: Register = (on, options) => {
       }
     }
     return out;
-  }).catch(($, e, next) => next(e));
+  }).catch(($, e, next) => (fail($, "logging", next.error), next(e)));
 
+  // the turn's end marks the memory due (uniichat.due, the tree's count)
+  // once every summary is built; the kick plugin (kick/) compacts on it,
+  // since a compaction this plugin asks for skips its own session.compact
   on("turn.complete", async ($, e, next) => {
     const out = await next(e);
-    if (tree === null || e.agentId !== undefined || compacting !== null || cannot !== null || since === 0 || since < threshold) {
+    if (tree === null || e.agentId !== undefined || compacting !== null || since === 0 || since < threshold) {
       return out;
     }
     const t = tree;
     compacting = (async () => {
       await Tree.settle(t, t.count);
-      let why = "";
-      for (let k = 0; k < TRIES && since > 0; k++) {
-        await new Promise<void>((ok) => void $.clock.after(NAP * k, ok));
-        const done = await $.session.compact().then(() => true, (err) => ((why = String(err?.message ?? err)), false));
-        if (done) {
-          return;
-        }
-        if (/headless/.test(why)) {
-          cannot = why;
-          $.ui.log(NAME + ": " + why + " (only /compact compacts to the view here)");
-          return;
-        }
-      }
-      $.ui.log(NAME + ": could not compact after the turn (" + why + "); the next turn tries again");
+      await $.state.set({ plugin: "uniichat", key: "due" }, t.count);
     })().finally(() => (compacting = null));
     return out;
   });
@@ -188,8 +172,23 @@ export const register: Register = (on, options) => {
     }
     since = 0;
     viewed = true;
-    return { messages: [{ role: "user" as const, text: compacted(Tree.show_view(tree), tree.count), toolUses: [] }] };
-  }).catch(($, e, next) => next(e));
+    const text = compacted(Tree.show_view(tree), tree.count);
+    await $.fs.write(dir + "/view.md", text);
+    return { messages: [{ role: "user" as const, text, toolUses: [] }] };
+  }).catch(($, e, next) => (fail($, "compaction", next.error), next(e)));
+
+  // a view drawn as one line, the whole of it in view.md and under ctrl+o:
+  // display only, the model still reads it all
+  on("ui.render", { component: "UserMessage" }, ($, e, next) => {
+    const { text, isExpanded } = e.props;
+    if (isExpanded || !text.startsWith(HEAD)) {
+      return next(e);
+    }
+    const last = /Messages 0 to (\d+)/.exec(text)?.[1] ?? "?";
+    const line = NAME + ": rebuilt the memory from messages 0 to " + last + " · " + dir + "/view.md (ctrl+o shows it)";
+    // Our own row in place of the user-message one, drawn like a dim notice
+    return { type: "Box", props: { marginTop: 1, paddingLeft: 2 }, children: [{ type: "Text", props: { dimColor: true }, children: [line] }] };
+  });
 
   on("tool.call", { tool: "mcp__uniichat__zoom" }, async ($, e) => {
     const args = e as unknown as { id: unknown; n?: unknown; at?: unknown };
@@ -207,6 +206,12 @@ export const register: Register = (on, options) => {
     return { result: await Tree.date(tree, Number(args.id)) };
   });
 };
+
+// a failed hook, said in the transcript and the debug log, before the
+// engine's own behavior takes its place
+function fail($: { ui: { log: (text: string) => void } }, what: string, error: { kind: string; message?: string }): void {
+  $.ui.log(what + " failed, Claude Code's own in its place (" + error.kind + (error.message ? ": " + error.message : "") + ")");
+}
 
 // Rows
 // ====

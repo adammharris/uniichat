@@ -40,7 +40,15 @@ How it works
 Run it
 ------
 
-    claude --plugin-dir /path/to/uniichat/mod
+    claude --plugin-dir /path/to/uniichat/mod --plugin-dir /path/to/uniichat/mod/kick
+
+`kick/` is a second, tiny plugin that does the compaction when a turn
+ends. A plugin's `$.session.compact()` runs every hook except the
+calling plugin's own. If uniichat asked for the compaction itself, its
+`session.compact` hook would be skipped, and Claude Code's own prose
+summary would replace the view. So uniichat marks the conversation due
+(`uniichat.due`) and kick makes the call. Without kick, only `/compact`
+and Claude Code's auto-compaction compact to the view.
 
 Options are set with `/config`, or under `pluginConfigs` in settings
 (the key is `uniichat@inline` for a `--plugin-dir` mod):

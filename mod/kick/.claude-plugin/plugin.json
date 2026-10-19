@@ -1,0 +1,5 @@
+{
+  "name": "uniichat-kick",
+  "version": "0.1.0",
+  "description": "Compacts the conversation when uniichat marks it due, so uniichat's own compaction hook runs (a plugin's $.session.compact skips its own hooks)."
+}
