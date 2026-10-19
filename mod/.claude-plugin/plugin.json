@@ -1,0 +1,11 @@
+{
+  "name": "uniichat",
+  "version": "0.1.0",
+  "description": "UniiChat's never-ending memory for Claude Code: every message summarized into a binary tree, each conversation compacted to its view.",
+  "userConfig": {
+    "threshold": { "type": "number", "title": "Compaction threshold", "description": "Bytes of messages since the last compaction after which a turn's end compacts to the view (0: after every turn, as UniiChat).", "default": 0 },
+    "compactor": { "type": "string", "title": "Compactor model", "description": "The model that writes the summaries.", "default": "haiku" },
+    "effort": { "type": "string", "title": "Compactor effort", "description": "How hard the compactor thinks.", "default": "high", "options": ["low", "medium", "high", "xhigh", "max"] },
+    "dir": { "type": "string", "title": "Memory folder", "description": "Where the chat is kept (empty: ~/.uniichat).", "default": "" }
+  }
+}
