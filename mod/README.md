@@ -25,8 +25,9 @@ How it works
 - **A compaction leaves only the view.** After a turn, once every message
   has its summary, the mod compacts the conversation. Its
   `session.compact` hook returns the view in place of Claude Code's own
-  summary. With `threshold` at 0, the default, this happens after every
-  turn, so each turn sees the whole chat as UniiChat's turns do. Claude
+  summary. With `threshold` at 0 this happens after every turn, so each
+  turn sees the whole chat as UniiChat's turns do; the default, 200000,
+  waits for about 50k tokens of new messages. Claude
   Code's own compactions (`/compact`, or reaching its limit) also become
   the view.
 - **A new conversation starts with the view.** A new session, or one after
@@ -54,8 +55,8 @@ Options are set with `/config`, or under `pluginConfigs` in settings
 (the key is `uniichat@inline` for a `--plugin-dir` mod):
 
 - `threshold`: how many bytes of messages since the last compaction a
-  turn's end needs before it compacts to the view (default 0: after
-  every turn, as UniiChat does).
+  turn's end needs before it compacts to the view (default 200000, about
+  50k tokens; 0: after every turn, as UniiChat does).
 - `compactor`: the model that writes the summaries (default `haiku`).
 - `effort`: the compactor's effort (default `high`).
 - `dir`: where the chat is kept (default `~/.uniichat`).
